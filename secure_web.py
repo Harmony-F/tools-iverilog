@@ -5,7 +5,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Tuple
 
-from user_db import verify_user
+from user_db import verify_user_with_hashes
 
 BASE_DIR = Path(__file__).resolve().parent
 CERT_DIR = BASE_DIR / "certs"
@@ -16,11 +16,20 @@ PORT = 9444
 
 
 def create_ssl_context() -> ssl.SSLContext:
+    certfile = CERT_DIR / "server.pem"
+    keyfile = CERT_DIR / "server.key"
+    cafile = CERT_DIR / "ca.pem"
+
+    missing = [p for p in (certfile, keyfile, cafile) if not p.exists()]
+    if missing:
+        missing_list = ", ".join(p.name for p in missing)
+        raise FileNotFoundError(
+            f"缺少证书文件: {missing_list}。请先在仓库根目录运行 ./certs/gen_certs.sh 生成自签名证书。"
+        )
+
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain(
-        certfile=str(CERT_DIR / "server.pem"), keyfile=str(CERT_DIR / "server.key")
-    )
-    context.load_verify_locations(cafile=str(CERT_DIR / "ca.pem"))
+    context.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
+    context.load_verify_locations(cafile=str(cafile))
     context.verify_mode = ssl.CERT_OPTIONAL
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20")
@@ -42,20 +51,24 @@ class LoginHandler(SimpleHTTPRequestHandler):
         username = data.get("username", [""])[0]
         password = data.get("password", [""])[0]
 
-        ok, message = self._handle_login(username, password)
+        ok, message, hashes = self._handle_login(username, password)
         response = {"ok": ok, "message": message}
+        if hashes:
+            response.update(hashes)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(json.dumps(response).encode("utf-8"))
 
-    def _handle_login(self, username: str, password: str) -> Tuple[bool, str]:
+    def _handle_login(self, username: str, password: str) -> Tuple[bool, str, dict | None]:
         if not username or not password:
-            return False, "需要填写用户名和密码"
-        if verify_user(username, password):
-            return True, "登录成功，TLS 已加密"
-        return False, "用户名或密码错误"
+            return False, "需要填写用户名和密码", None
+
+        ok, details = verify_user_with_hashes(username, password)
+        if ok:
+            return True, "登录成功，TLS 已加密，并返回哈希结果", details
+        return False, details.get("error", "用户名或密码错误"), None
 
     def log_message(self, format: str, *args) -> None:  # type: ignore[override]
         # Keep console output concise.

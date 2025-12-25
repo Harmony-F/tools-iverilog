@@ -110,9 +110,24 @@ Encrypted echo from server: {'echo': 'Hello over TLS + AES-GCM!'}
 python secure_web.py
 ```
 
+若提示 `FileNotFoundError: [Errno 2] No such file or directory`，说明尚未生成 `certs/server.pem` 等证书文件，请先在仓库根目录运行 `./certs/gen_certs.sh` 后再启动。
+
 2) 浏览器访问 https://localhost:9444 ，若浏览器提示证书不受信，请将 `certs/ca.pem` 导入信任或选择继续访问（因证书为本地自签名）。
 
-页面中输入用户名/密码（例如 `demo` / `password123`），提交后请求会在 TLS 信道中发送到本地服务器，由服务器用 PBKDF2-HMAC-SHA256 哈希校验并返回结果，状态文本会实时显示登录是否成功。
+页面中输入用户名/密码（例如 `demo` / `password123`），提交后请求会在 TLS 信道中发送到本地服务器，由服务器用 PBKDF2-HMAC-SHA256 哈希校验并返回结果；登录成功时还会把用户名 SHA-256 哈希与密码 PBKDF2 哈希一并回显到页面。
+
+### 哈希校验的结果会返回哪里？
+- **终端客户端**：`secure_client.py` 在 TLS 信道内收到服务器返回的 JSON，如 `{"ok": true, "message": "Login successful"}`，并在控制台打印 `Server response: {...}`，这就是哈希校验的结果回执。
+- **浏览器页面**：`secure_web.py` 的 `/login` 接口会返回形如 `{ ok: true/false, message: "...", username_hash: "...", password_hash: "..." }` 的 JSON。前端脚本把 `message` 渲染到页面中部的状态文字（绿色/红色），同时在下方展示用户名 SHA-256 与密码 PBKDF2 哈希回执，清楚表明校验已通过并回显了哈希。
+
+### 6. 哈希校验的代码位置与运行结果体现
+- **代码位置**：
+  - `user_db.py`：`create_user` 将密码用 PBKDF2-HMAC-SHA256（随机盐+迭代）转成哈希并写入 `data/users.json`；`verify_user` 在终端/服务端登录时用相同参数重新计算并用恒定时间比较哈希；`verify_user_with_hashes` 在 Web 端校验的同时返回用户名 SHA-256 与密码哈希。
+  - `secure_server.py`：`handle_login` 收到客户端凭据后调用 `verify_user`，成功才允许进入后续加密回显循环。
+  - `secure_web.py`：`_handle_login` 在 HTTPS `/login` 请求里调用 `verify_user_with_hashes`，登录成功时把用户名与密码的哈希字段一起装入 JSON 响应。
+- **运行结果体现**：
+  - 运行 `python secure_client.py` 时，服务端哈希校验成功会让客户端收到 `{ 'ok': True, 'message': 'Login successful' }` 并继续加密通信；失败则返回 `{ 'ok': False, 'message': 'Invalid credentials' }` 并结束。
+  - 运行 `python secure_web.py` 并在浏览器提交表单时，页面状态区域会显示 `/login` 返回的 `message`，绿色提示如 “登录成功，TLS 已加密，并返回哈希结果”，或红色提示 “用户名或密码错误”；成功时下方会额外列出用户名 SHA-256 和密码 PBKDF2 哈希值。
 
 ## Files
 - `certs/gen_certs.sh` – OpenSSL commands to build a CA, server, and client certificates.

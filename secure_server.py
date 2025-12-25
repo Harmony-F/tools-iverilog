@@ -15,11 +15,20 @@ PORT = 9443
 
 
 def create_ssl_context() -> ssl.SSLContext:
+    certfile = CERT_DIR / "server.pem"
+    keyfile = CERT_DIR / "server.key"
+    cafile = CERT_DIR / "ca.pem"
+
+    missing = [p for p in (certfile, keyfile, cafile) if not p.exists()]
+    if missing:
+        missing_list = ", ".join(p.name for p in missing)
+        raise FileNotFoundError(
+            f"缺少证书文件: {missing_list}。请先在仓库根目录运行 ./certs/gen_certs.sh 生成自签名证书。"
+        )
+
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-    context.load_cert_chain(
-        certfile=str(CERT_DIR / "server.pem"), keyfile=str(CERT_DIR / "server.key")
-    )
-    context.load_verify_locations(cafile=str(CERT_DIR / "ca.pem"))
+    context.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
+    context.load_verify_locations(cafile=str(cafile))
     context.verify_mode = ssl.CERT_OPTIONAL
     # Favor strong AEAD ciphers provided by OpenSSL (e.g., AES-256-GCM)
     context.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20")

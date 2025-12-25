@@ -10,9 +10,20 @@ PORT = 9443
 
 
 def create_ssl_context() -> ssl.SSLContext:
-    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(CERT_DIR / "ca.pem"))
+    certfile = CERT_DIR / "client.pem"
+    keyfile = CERT_DIR / "client.key"
+    cafile = CERT_DIR / "ca.pem"
+
+    missing = [p for p in (certfile, keyfile, cafile) if not p.exists()]
+    if missing:
+        missing_list = ", ".join(p.name for p in missing)
+        raise FileNotFoundError(
+            f"缺少证书文件: {missing_list}。请先在仓库根目录运行 ./certs/gen_certs.sh 生成自签名证书。"
+        )
+
+    context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(cafile))
     context.check_hostname = True
-    context.load_cert_chain(certfile=str(CERT_DIR / "client.pem"), keyfile=str(CERT_DIR / "client.key"))
+    context.load_cert_chain(certfile=str(certfile), keyfile=str(keyfile))
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.set_ciphers("ECDHE+AESGCM:ECDHE+CHACHA20")
     return context
