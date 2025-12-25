@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+*.swo
+*.swp
+certs/*.pem
+certs/*.key
+certs/*.csr
+certs/*.srl
