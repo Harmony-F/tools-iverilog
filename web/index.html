@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>安全 TLS 登录演示</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0b1321;
+      --panel: rgba(255, 255, 255, 0.08);
+      --border: rgba(255, 255, 255, 0.2);
+      --accent: #46c2ff;
+      --text: #eaf2ff;
+      --error: #ff7a7a;
+      --success: #7ef8c1;
+      --code: #0f172a;
+    }
+    body {
+      font-family: "Inter", "PingFang SC", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 10% 20%, rgba(70, 194, 255, 0.18), transparent 20%),
+                  radial-gradient(circle at 90% 10%, rgba(126, 248, 193, 0.2), transparent 24%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .card {
+      width: min(420px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(8px);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      letter-spacing: 0.4px;
+    }
+    p {
+      line-height: 1.6;
+      opacity: 0.86;
+      margin: 0 0 16px;
+    }
+    label {
+      display: block;
+      margin: 12px 0 6px;
+      font-weight: 600;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font-size: 15px;
+      transition: border 0.2s ease, box-shadow 0.2s ease;
+    }
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(70, 194, 255, 0.25);
+    }
+    button {
+      width: 100%;
+      margin-top: 16px;
+      background: linear-gradient(120deg, #46c2ff, #7ef8c1);
+      color: #041221;
+      border: none;
+      border-radius: 12px;
+      padding: 12px;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 30px rgba(70, 194, 255, 0.35);
+    }
+    button:disabled {
+      cursor: wait;
+      opacity: 0.65;
+      box-shadow: none;
+      transform: none;
+    }
+    pre {
+      background: var(--code);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 13px;
+      border: 1px solid var(--border);
+    }
+    .status {
+      margin-top: 14px;
+      font-weight: 600;
+      min-height: 24px;
+    }
+    .status.ok {
+      color: var(--success);
+    }
+    .status.err {
+      color: var(--error);
+    }
+    .note {
+      font-size: 13px;
+      opacity: 0.78;
+      margin-top: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>端到端 TLS 登录演示</h1>
+    <p>此页面通过浏览器向本地 HTTPS 服务器提交账号密码，服务器使用 PBKDF2-HMAC-SHA256 哈希校验，并在 TLS 信道内返回结果。</p>
+    <form id="login-form">
+      <label for="username">用户名</label>
+      <input id="username" name="username" autocomplete="username" placeholder="demo" required />
+      <label for="password">密码</label>
+      <input id="password" type="password" name="password" autocomplete="current-password" placeholder="password123" required />
+      <button type="submit">登录并校验</button>
+      <div id="status" class="status"></div>
+      <pre id="hash-output" hidden aria-live="polite"></pre>
+    </form>
+    <p class="note">提示：使用 repo 自带用户 demo/password123 或通过 <code>python user_db.py &lt;user&gt; &lt;pass&gt;</code> 新建用户；浏览器需信任 <code>certs/ca.pem</code> 或手动接受证书以完成 TLS 访问。</p>
+    <pre>
+python secure_web.py
+# 浏览器访问 https://localhost:9444
+    </pre>
+  </div>
+  <script>
+    const form = document.getElementById('login-form');
+    const status = document.getElementById('status');
+    const hashOutput = document.getElementById('hash-output');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      status.textContent = '正在通过 TLS 提交…';
+      status.className = 'status';
+      hashOutput.hidden = true;
+      const formData = new FormData(form);
+      const body = new URLSearchParams(formData).toString();
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const resp = await fetch('/login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+          },
+          body
+        });
+        const result = await resp.json();
+        status.textContent = result.message || '未知响应';
+        status.classList.toggle('ok', !!result.ok);
+        status.classList.toggle('err', !result.ok);
+        if (result.ok && result.username_hash && result.password_hash) {
+          hashOutput.textContent = `用户名 SHA-256: ${result.username_hash}\n密码 PBKDF2-HMAC-SHA256: ${result.password_hash}`;
+          hashOutput.hidden = false;
+        }
+      } catch (err) {
+        status.textContent = '请求失败，请确认已信任自签名证书或服务器已启动。';
+        status.classList.add('err');
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

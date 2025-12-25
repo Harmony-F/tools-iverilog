@@ -1,0 +1,7 @@
+{
+  "demo": {
+    "salt": "5d36282377fa064c9b32a3c2d1a8d5ea",
+    "iterations": 120000,
+    "hash": "29bb3218575f4bda10258c3ca2b8d91c7cb4e66724d005b967ef184ad653bf8b"
+  }
+}
